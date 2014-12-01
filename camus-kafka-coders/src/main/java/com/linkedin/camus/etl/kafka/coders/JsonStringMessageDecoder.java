@@ -63,6 +63,13 @@ public class JsonStringMessageDecoder extends MessageDecoder<byte[], String> {
 
 		payloadString =  new String(payload);
 
+        // 仅解析json部分
+        payloadString = payloadString.trim();
+        int idx = payloadString.indexOf('{');
+        if (idx != -1 && idx != 0) {
+            payloadString = payloadString.substring(idx);
+        }
+
 		// Parse the payload into a JsonObject.
 		try {
 			jsonObject = new JsonParser().parse(payloadString).getAsJsonObject();
