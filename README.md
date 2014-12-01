@@ -37,8 +37,8 @@ In this file we maintain our own README for internal project usage
 | kafka.whitelist.topics | topic的白名单, 在该名单之内的topic才会生效. topic间以","隔开, 支持正则表达式 |
 | etl.output.codec | 压缩类型 |
 | kafka.max.pull.minutes.per.task | mapper的最大pull时间, 单位为分钟. 当达到最大时间之后, mapper会停止从kafka pull消息, 并调用 etl.camus.monitor.class 中的监控接口 |
-| mapred.map.tasks | 最大的mapper. 如果该值小于 topic-partition 数, 会多个分区共用一个mapper |
-| kafka.move.to.last.offset.list | 最指定的topic列表的offset移动到最新处, 为all时表示所有topic |
+| mapred.map.tasks | 最大的mapper数. 如果该值小于 topic-partition 数, 会多个分区共用一个mapper |
+| kafka.move.to.last.offset.list | 将指定的topic列表的offset移动到最新处, 为all时表示所有topic |
 
 
 #### etl.camus.monitor.class
@@ -53,6 +53,7 @@ In this file we maintain our own README for internal project usage
 除了原版camus内置的 com.linkedin.camus.etl.kafka.coders.JsonStringMessageDecoder 的之外, 还增加了2个定制的decoder:
 
 | 类名 | 说明 | 如何获取时间戳
+| --- | --- | --- |
 com.linkedin.camus.etl.kafka.coders.JsonStringMessageDecoder | 解析json格式的数据 | 通过 camus.message.timestamp.field 配置时间戳的字段, 通过 timestamp 配置时间戳的类型
 com.linkedin.camus.etl.kafka.coders.RawMessageDecoder | 不对日志进行解析, 直接传给 WriteProvider | 读取该消息的时间
 com.linkedin.camus.etl.kafka.coders.MoguCrondDecoder | 为mogujie crond日志专门定制的decoder | 读取crond日志最开头的 "yyyy-MM-dd HH:mm:ss" 部分, 作为消息的时间戳
