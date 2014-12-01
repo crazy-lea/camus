@@ -12,10 +12,22 @@
 	<name>Camus ETL to move data from Kafka to Hadoop.</name>
 	<packaging>jar</packaging>
 	<dependencies>
+        <dependency>
+            <groupId>log4j</groupId>
+            <artifactId>log4j</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
 		<dependency>
 			<groupId>com.linkedin.camus</groupId>
 			<artifactId>camus-api</artifactId>
 		</dependency>
+        <dependency>
+            <groupId>com.linkedin.camus</groupId>
+            <artifactId>camus-config</artifactId>
+        </dependency>
 		<dependency>
 			<groupId>com.linkedin.camus</groupId>
 			<artifactId>camus-schema-registry</artifactId>
@@ -58,6 +70,11 @@
 				</exclusion>
 			</exclusions>
 		</dependency>
+        <dependency>
+            <groupId>com.hadoop.gplcompression</groupId>
+            <artifactId>hadoop-lzo</artifactId>
+            <version>0.4.20-SNAPSHOT</version>
+        </dependency>
 		<dependency>
 			<groupId>org.scala-lang</groupId>
 			<artifactId>scala-library</artifactId>
@@ -79,22 +96,25 @@
 		</dependency>
 	</dependencies>
 
-<!-- 	<build> -->
-<!-- 		<plugins> -->
-<!-- 			<plugin> -->
-<!-- 				<groupId>org.apache.avro</groupId> -->
-<!-- 				<artifactId>avro-maven-plugin</artifactId> -->
-<!-- 				<version>1.7.0</version> -->
-<!-- 				<executions>  -->
-<!--  					 <execution> <id>schemas</id> <phase>generate-sources</phase> <goals>   -->
-<!--  						<goal>schema</goal> <goal>protocol</goal> <goal>idl-protocol</goal> </goals>   -->
-<!--  						<configuration> <sourceDirectory>${project.basedir}/src/main/avro/</sourceDirectory>  -->
-<!--  						<outputDirectory>${project.basedir}/src/main/java/</outputDirectory> -->
-<!-- 						<lifecycleMappingMetadata> <action> <ignore /> </action> </lifecycleMappingMetadata></configuration>  -->
-<!--  						</execution>  -->
-<!--  				</executions>  -->
-<!-- 			</plugin> -->
-<!-- 		</plugins> -->
-<!-- 	</build> -->
+ 	<build>
+ 		<plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>2.0</version>
+                <configuration>
+                    <shadedArtifactAttached>true</shadedArtifactAttached>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+ 	</build>
 
 </project>
