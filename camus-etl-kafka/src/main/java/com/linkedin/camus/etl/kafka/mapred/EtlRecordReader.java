@@ -8,23 +8,18 @@ import com.linkedin.camus.etl.kafka.common.EtlKey;
 import com.linkedin.camus.etl.kafka.common.EtlRequest;
 import com.linkedin.camus.etl.kafka.common.ExceptionWritable;
 import com.linkedin.camus.etl.kafka.common.KafkaReader;
-
-import java.io.IOException;
-import java.util.HashSet;
-
+import com.linkedin.camus.etl.kafka.monitor.CamusMonitorWrapper;
 import kafka.message.Message;
-
 import org.apache.hadoop.fs.ChecksumException;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.Writable;
-import org.apache.hadoop.mapreduce.InputSplit;
-import org.apache.hadoop.mapreduce.JobContext;
-import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.*;
 import org.apache.hadoop.mapreduce.Mapper.Context;
-import org.apache.hadoop.mapreduce.RecordReader;
-import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.log4j.Logger;
 import org.joda.time.DateTime;
+
+import java.io.IOException;
+import java.util.HashSet;
 
 public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
     private static final String PRINT_MAX_DECODER_EXCEPTIONS = "max.decoder.exceptions.to.print";
@@ -52,6 +47,10 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
     private long endTimeStamp = 0;
     private HashSet<String> ignoreServerServiceList = null;
 
+    private long mapperMaxQps = -1;
+    private long mapperStartTime = 0; // mapper的启动时间
+    private long currentReadBytes = 0;
+
     private String statusMsg = "";
 
     EtlSplit split;
@@ -75,6 +74,7 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
             InterruptedException {
         this.split = (EtlSplit) split;
         this.context = context;
+        CamusMonitorWrapper.init(context.getConfiguration());
 
         if (context instanceof Mapper.Context) {
             mapperContext = (Context) context;
@@ -86,6 +86,12 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
             this.maxPullHours = EtlInputFormat.getKafkaMaxPullHrs(context);
         } else {
             this.endTimeStamp = Long.MAX_VALUE;
+        }
+
+        mapperMaxQps = EtlInputFormat.getKafkaMapperMaxQps(context);
+        if (mapperMaxQps > 0) {
+            mapperStartTime = System.currentTimeMillis();
+            log.info("mapperMaxQps: " + mapperMaxQps);
         }
 
         if (EtlInputFormat.getKafkaMaxPullMinutesPerTask(context) != -1) {
@@ -102,11 +108,10 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
         } else {
             beginTimeStamp = 0;
         }
-        
+
         ignoreServerServiceList = new HashSet<String>();
-        for(String ignoreServerServiceTopic : EtlInputFormat.getEtlAuditIgnoreServiceTopicList(context))
-        {
-        	ignoreServerServiceList.add(ignoreServerServiceTopic);
+        for (String ignoreServerServiceTopic : EtlInputFormat.getEtlAuditIgnoreServiceTopicList(context)) {
+            ignoreServerServiceList.add(ignoreServerServiceTopic);
         }
 
         this.totalBytes = this.split.getLength();
@@ -191,6 +196,7 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
             if (reader != null) {
                 closeReader();
             }
+            CamusMonitorWrapper.getInstance().jobPullTimeReach();
             return false;
         }
 
@@ -235,18 +241,31 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
                     mapperContext.getCounter("total", "event-count").increment(1);
                     byte[] bytes = getBytes(msgValue);
                     byte[] keyBytes = getBytes(msgKey);
+
+                    // 限流
+                    currentReadBytes += bytes.length;
+                    if (mapperMaxQps > 0) {
+                        double qps = ((currentReadBytes / 1024.0) * 1000) / (System.currentTimeMillis() - mapperStartTime); //kb/s
+                        if (qps > mapperMaxQps) {
+                            log.info("mapper max qps is: " + mapperMaxQps + "kb/s, but now is: "
+                                    + qps + "kb/s. sleep for a while");
+                            Thread.sleep(1000);
+                        }
+                    }
+
                     // check the checksum of message.
                     // If message has partition key, need to construct it with Key for checkSum to match
-                    Message messageWithKey = new Message(bytes,keyBytes);
+                    Message messageWithKey = new Message(bytes, keyBytes);
                     Message messageWithoutKey = new Message(bytes);
                     long checksum = key.getChecksum();
                     if (checksum != messageWithKey.checksum() && checksum != messageWithoutKey.checksum()) {
-                    	throw new ChecksumException("Invalid message checksum : MessageWithKey : "
-                              + messageWithKey.checksum() + " MessageWithoutKey checksum : " 
-                    		  + messageWithoutKey.checksum() 
-                    		  + ". Expected " + key.getChecksum(),	
-                    		  key.getOffset());
+                        throw new ChecksumException("Invalid message checksum : MessageWithKey : "
+                                + messageWithKey.checksum() + " MessageWithoutKey checksum : "
+                                + messageWithoutKey.checksum()
+                                + ". Expected " + key.getChecksum(),
+                                key.getOffset());
                     }
+
 
                     long tempTime = System.currentTimeMillis();
                     CamusWrapper wrapper;
@@ -264,8 +283,7 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
                     }
 
                     if (wrapper == null) {
-                        mapperContext.write(key, new ExceptionWritable(new RuntimeException(
-                                "null record")));
+                        //mapperContext.write(key, new ExceptionWritable(new RuntimeException("null record")));
                         continue;
                     }
 
@@ -338,14 +356,12 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
             }
         }
     }
-    
-    public void setServerService()
-    {
-    	if(ignoreServerServiceList.contains(key.getTopic()) || ignoreServerServiceList.contains("all"))
-    	{
-    		key.setServer(DEFAULT_SERVER);
-    		key.setService(DEFAULT_SERVICE);
-    	}
+
+    public void setServerService() {
+        if (ignoreServerServiceList.contains(key.getTopic()) || ignoreServerServiceList.contains("all")) {
+            key.setServer(DEFAULT_SERVER);
+            key.setService(DEFAULT_SERVICE);
+        }
     }
 
     public static int getMaximumDecoderExceptionsToPrint(JobContext job) {

@@ -59,6 +59,11 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 	public static final String KAFKA_CLIENT_BUFFER_SIZE = "kafka.client.buffer.size";
 	public static final String KAFKA_CLIENT_SO_TIMEOUT = "kafka.client.so.timeout";
 
+    /**
+     * 每个mapper的最大qps, 单位: KB/s
+     */
+	public static final String KAFKA_MAPPER_MAX_QPS = "kafka.mapper.max.qps";
+
 	public static final String KAFKA_MAX_PULL_HRS = "kafka.max.pull.hrs";
 	public static final String KAFKA_MAX_PULL_MINUTES_PER_TASK = "kafka.max.pull.minutes.per.task";
 	public static final String KAFKA_MAX_HISTORICAL_DAYS = "kafka.max.historical.days";
@@ -68,13 +73,13 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 	public static final String ETL_AUDIT_IGNORE_SERVICE_TOPIC_LIST = "etl.audit.ignore.service.topic.list";
 
 	private static Logger log = null;
-	
+
 	public EtlInputFormat()
   {
 	  if (log == null)
 	    log = Logger.getLogger(getClass());
   }
-	
+
 	public static void setLogger(Logger log){
 	  EtlInputFormat.log = log;
 	}
@@ -88,7 +93,7 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 
 	/**
 	 * Gets the metadata from Kafka
-	 * 
+	 *
 	 * @param context
 	 * @return
 	 */
@@ -126,8 +131,10 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 		CamusJob.stopTiming("kafkaSetupTime");
 		return topicMetadataList;
 	}
- 
+
 	private SimpleConsumer createConsumer(JobContext context, String broker) {
+        String clientId = CamusJob.getKafkaClientName(context);
+        log.info("create consumer of broker: " + broker + ", client id: " + clientId);
 		if (!broker.matches(".+:\\d+"))
 			throw new InvalidParameterException("The kakfa broker " + broker + " must follow address:port pattern");
 		String[] hostPort = broker.split(":");
@@ -135,14 +142,14 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 			hostPort[0],
 			Integer.valueOf(hostPort[1]),
 			CamusJob.getKafkaTimeoutValue(context),
-			CamusJob.getKafkaBufferSize(context),
-			CamusJob.getKafkaClientName(context));
+			CamusJob.getKafkaBufferSize(context), clientId
+			);
 		return consumer;
 	}
 
 	/**
 	 * Gets the latest offsets and create the requests as needed
-	 * 
+	 *
 	 * @param context
 	 * @param offsetRequestInfo
 	 * @return
@@ -223,8 +230,9 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 		for (TopicMetadata topicMetadata : topicMetadataList) {
 			if (Pattern.matches(regex, topicMetadata.topic())) {
 				filteredTopics.add(topicMetadata);
-			} else {
-				log.info("Discarding topic : " + topicMetadata.topic());
+                log.info("In WhiteTopicList: " + topicMetadata.topic());
+            } else {
+				log.info("Not in WhiteTopicList, Discarding topic : " + topicMetadata.topic());
 			}
 		}
 		return filteredTopics;
@@ -259,7 +267,7 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 
 			for (TopicMetadata topicMetadata : topicMetadataList) {
 				if (Pattern.matches(regex, topicMetadata.topic())) {
-					log.info("Discarding topic (blacklisted): "
+					log.info("In BlackTopicList, Discarding topic (blacklisted): "
 							+ topicMetadata.topic());
 				} else if (!createMessageDecoder(context, topicMetadata.topic())) {
 					log.info("Discarding topic (Decoder generation failed) : "
@@ -284,6 +292,7 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 									+ partitionMetadata.leader()
 											.getConnectionString()),
 									partitionMetadata.leader().id());
+                            log.info("topic: " + topicMetadata.topic() + ", partition: " + partitionMetadata.partitionId());
 							if (offsetRequestInfo.containsKey(leader)) {
 								ArrayList<TopicAndPartition> topicAndPartitions = offsetRequestInfo
 										.get(leader);
@@ -333,6 +342,7 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 						new EtlKey(request.getTopic(), request.getLeaderId(),
 								request.getPartition(), 0, request
 										.getLastOffset()));
+                log.info("move topic to last offset: " + request.getTopic());
 			}
 
 			EtlKey key = offsetKeys.get(request);
@@ -607,6 +617,13 @@ public class EtlInputFormat extends InputFormat<EtlKey, CamusWrapper> {
 		return job.getConfiguration().getBoolean(ETL_IGNORE_SCHEMA_ERRORS,
 				false);
 	}
+
+    /**
+     * 返回每个mapper的最大qps, 单位 kb/s
+     */
+    public static long getKafkaMapperMaxQps(JobContext job) {
+        return job.getConfiguration().getLong(KAFKA_MAPPER_MAX_QPS, -1);
+    }
 
 	public static void setEtlAuditIgnoreServiceTopicList(JobContext job,
 			String topics) {
