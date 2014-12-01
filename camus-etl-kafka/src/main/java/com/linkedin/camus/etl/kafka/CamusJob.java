@@ -26,6 +26,7 @@ import java.util.TreeMap;
 import java.util.Comparator;
 import java.util.Arrays;
 
+import com.linkedin.camus.etl.kafka.monitor.CamusMonitorWrapper;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.HelpFormatter;
@@ -92,7 +93,7 @@ public class CamusJob extends Configured implements Tool {
 	private static org.apache.log4j.Logger log;
 
 	private final Properties props;
-	
+
 	private DateTimeFormatter dateFmt = DateUtils.getDateTimeFormatter(
       "YYYY-MM-dd-HH-mm-ss", DateTimeZone.UTC);
 
@@ -103,7 +104,7 @@ public class CamusJob extends Configured implements Tool {
 	public CamusJob(Properties props) throws IOException {
 		this(props, org.apache.log4j.Logger.getLogger(CamusJob.class));
 	}
-	
+
 	 public CamusJob(Properties props, Logger log) throws IOException {
 	    this.props = props;
 	    this.log = log;
@@ -128,19 +129,24 @@ public class CamusJob extends Configured implements Tool {
 				(timingMap.get(name) == null ? 0 : timingMap.get(name))
 						+ System.currentTimeMillis());
 	}
-	
+
 	private Job createJob(Properties props) throws IOException {
-	  Job job; 
+	  Job job;
 	  if(getConf() == null)
 	    {
-	      setConf(new Configuration()); 
+          Configuration conf = new Configuration();
+          // 去除任务竞争
+          conf.set("mapreduce.map.speculative", "false");
+          conf.set("mapreduce.reduce.speculative", "false");
+	      setConf(conf);
 	    }
-	  
+
 	  populateConf(props, getConf(), log);
-	  
+
 	  job = new Job(getConf());
+      log.info("job config: " + getConf());
 	  job.setJarByClass(CamusJob.class);
-	  
+
 	   if(job.getConfiguration().get("camus.job.name") != null)
 	    {
 	      job.setJobName(job.getConfiguration().get("camus.job.name"));
@@ -149,7 +155,7 @@ public class CamusJob extends Configured implements Tool {
 	   {
 	     job.setJobName("Camus Job");
 	   }
-	   
+
 	  return job;
 	}
 
@@ -229,7 +235,7 @@ public class CamusJob extends Configured implements Tool {
 		long limit = (long) (content.getQuota() * job.getConfiguration()
 				.getFloat(ETL_EXECUTION_HISTORY_MAX_OF_QUOTA, (float) .5));
 		limit = limit == 0 ? 50000 : limit;
-		
+
 		if (props.contains(ETL_BASEDIR_QUOTA_OVERIDE)){
 		  limit = Long.valueOf(props.getProperty(ETL_BASEDIR_QUOTA_OVERIDE));
 		}
@@ -243,7 +249,7 @@ public class CamusJob extends Configured implements Tool {
 				return f1.getPath().getName().compareTo(f2.getPath().getName());
 			}
 		});
-		
+
 		// removes oldest directory until we get under required % of count
 		// quota. Won't delete the most recent directory.
 		for (int i = 0; i < executions.length - 1 && limit < currentCount; i++) {
@@ -254,11 +260,11 @@ public class CamusJob extends Configured implements Tool {
 					- execContent.getDirectoryCount();
 			fs.delete(stat.getPath(), true);
 		}
-		
+
 		// removing failed exectutions if we need room
 		if (limit < currentCount){
 		  FileStatus[] failedExecutions = fs.listStatus(execBasePath, new PathFilter() {
-		    
+
 		    public boolean accept(Path path) {
 		      try {
 		        dateFmt.parseDateTime(path.getName());
@@ -268,13 +274,13 @@ public class CamusJob extends Configured implements Tool {
 		      }
 		    }
 		  });
-		  
+
 		  Arrays.sort(failedExecutions, new Comparator<FileStatus>() {
 	      public int compare(FileStatus f1, FileStatus f2) {
 	        return f1.getPath().getName().compareTo(f2.getPath().getName());
 	      }
 	    });
-		  
+
 	    for (int i = 0; i < failedExecutions.length && limit < currentCount; i++) {
 	      FileStatus stat = failedExecutions[i];
 	      log.info("removing failed execution: " + stat.getPath().getName());
@@ -301,7 +307,8 @@ public class CamusJob extends Configured implements Tool {
 		// output directory in a normal run, but instead written to the
 		// appropriate date-partitioned subdir in camus.destination.path
 		DateTimeFormatter dateFmt = DateUtils.getDateTimeFormatter(
-				"YYYY-MM-dd-HH-mm-ss", DateTimeZone.UTC);
+				"YYYY-MM-dd-HH-mm-ss", DateTimeZone.forID(job.getConfiguration().
+                        get(EtlMultiOutputFormat.ETL_DEFAULT_TIMEZONE, "America/Los_Angeles")));
 		String executionDate = new DateTime().toString(dateFmt);
 		Path newExecutionOutput = new Path(execBasePath, executionDate);
 		FileOutputFormat.setOutputPath(job, newExecutionOutput);
@@ -309,14 +316,20 @@ public class CamusJob extends Configured implements Tool {
 				+ newExecutionOutput.toString());
 
 		EtlInputFormat.setLogger(log);
-		
+
 		job.setInputFormatClass(EtlInputFormat.class);
 		job.setOutputFormatClass(EtlMultiOutputFormat.class);
 		job.setNumReduceTasks(0);
 
 		stopTiming("pre-setup");
 		job.submit();
-		job.waitForCompletion(true);
+		boolean succ = job.waitForCompletion(true);
+        CamusMonitorWrapper.init(job.getConfiguration());
+        if (succ) {
+            CamusMonitorWrapper.getInstance().jobSuccess();
+        } else {
+            CamusMonitorWrapper.getInstance().jobFail();
+        }
 
 		// dump all counters
 		Counters counters = job.getCounters();
@@ -474,7 +487,7 @@ public class CamusJob extends Configured implements Tool {
 	/**
 	 * Creates a diagnostic report mostly focused on timing breakdowns. Useful
 	 * for determining where to optimize.
-	 * 
+	 *
 	 * @param job
 	 * @param timingMap
 	 * @throws IOException
@@ -607,7 +620,7 @@ public class CamusJob extends Configured implements Tool {
 
 	public static void main(String[] args) throws Exception {
 		CamusJob job = new CamusJob();
-		ToolRunner.run(job, args);
+		int exitCode = ToolRunner.run(job, args);
 	}
 
 	@SuppressWarnings("static-access")
@@ -668,7 +681,7 @@ public class CamusJob extends Configured implements Tool {
 		if (brokers == null) {
 			brokers = job.getConfiguration().get(KAFKA_HOST_URL);
 			if (brokers != null) {
-				log.warn("The configuration properties " + KAFKA_HOST_URL + " and " + 
+				log.warn("The configuration properties " + KAFKA_HOST_URL + " and " +
 					KAFKA_HOST_PORT + " are deprecated. Please switch to using " + KAFKA_BROKERS);
 				return brokers + ":" + job.getConfiguration().getInt(KAFKA_HOST_PORT, 10251);
 			}
