@@ -80,7 +80,7 @@ public class EtlMultiOutputCommitter extends FileOutputCommitter {
                     EtlCounts count = counts.get(workingFileName);
 
                     String partitionedFile = getPartitionedPath(context, file,
-                            count.getEventCount(), count.getLastKey().getOffset());
+                            count.getEventCount(), count.getFirstKey().getOffset());
 
                     Path dest = new Path(baseOutDir, partitionedFile);
 
@@ -135,13 +135,8 @@ public class EtlMultiOutputCommitter extends FileOutputCommitter {
 
         String partitionedPath =
             EtlMultiOutputFormat.getPartitioner(context, topic).generatePartitionedPath(context, topic, leaderId,
-                            Integer.parseInt(partition), encodedPartition);
+                            Integer.parseInt(partition), offset, encodedPartition);
 
-        return partitionedPath +
-                    "/" + topic + "." + leaderId + "." + partition +
-                    "." + count+
-                    "." + offset + 
-                    "." + encodedPartition + 
-                    recordWriterProvider.getFilenameExtension();
+        return partitionedPath +recordWriterProvider.getFilenameExtension();
     }
 }

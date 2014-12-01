@@ -204,6 +204,7 @@ public class EtlMultiOutputFormat extends FileOutputFormat<EtlKey, Object> {
         String customPartitionerProperty = ETL_DEFAULT_PARTITIONER_CLASS + "." + topicName;
         if (partitionersByTopic.get(customPartitionerProperty) == null) {
             Configuration conf = job.getConfiguration();
+            log.info("partitioner class: " + conf.get(customPartitionerProperty) + ", for: " + customPartitionerProperty);
             Partitioner partitioner = ReflectionUtils.newInstance(
                     conf.getClass(customPartitionerProperty, getDefaultPartitionerClass(job), Partitioner.class), conf);
             partitionersByTopic.put(customPartitionerProperty, partitioner);

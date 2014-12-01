@@ -47,6 +47,7 @@ public class EtlCounts {
 	private HashMap<String, Source> counts;
 		
 	private transient EtlKey lastKey;
+	private transient EtlKey firstKey;
 	private transient int eventCount = 0;
 	private transient static final Random RANDOM = new Random();
 	
@@ -135,8 +136,12 @@ public class EtlCounts {
 	public int getEventCount() {
 		return eventCount;
 	}
-	
-	public EtlKey getLastKey() {
+
+    public EtlKey getFirstKey() {
+        return firstKey;
+    }
+
+    public EtlKey getLastKey() {
 		return lastKey;
 	}
 	
@@ -175,6 +180,14 @@ public class EtlCounts {
 
 		lastKey = new EtlKey(key);
 		eventCount++;
+
+                if (firstKey == null) {
+                        synchronized (this) {
+                                if (firstKey == null) {
+                                        firstKey = new EtlKey(key);
+                                }
+                        }
+                }
 	}
 	
 	

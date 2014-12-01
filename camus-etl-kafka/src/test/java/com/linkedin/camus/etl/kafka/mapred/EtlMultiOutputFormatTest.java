@@ -57,7 +57,7 @@ public class EtlMultiOutputFormatTest {
         }
 
         @Override
-        public String generatePartitionedPath(JobContext context, String topic, String brokerId, int partitionId, String encodedPartition) {
+        public String generatePartitionedPath(JobContext context, String topic, String brokerId, int partitionId, long offset, String encodedPartition) {
             return null;
         }
     }
