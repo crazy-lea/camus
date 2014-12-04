@@ -1,20 +1,32 @@
-# Intro
-Camus is LinkedIn's [Kafka](http://kafka.apache.org "Kafka")->HDFS pipeline. It is a mapreduce job that does distributed data loads out of Kafka. 
-
-The original README is [Here](./README.orig.md)
-
-In this file we maintain our own README for internal project usage
-
-
 ## Our Usage model
 
 在基本保持原版camus的原有功能下, 结合mogujie的需求对camus做了一些定制. 主要如下:
 
-* 支持camus的动态配置, 可通过后台管理.
+* 支持camus的动态配置, 可通过后台管理. (开源版本中不包括)
 * 新增mapreduce限速, 以防止kafka负载过大.
 * 根据我们的需求定制MessageDecoder, Partitioner和WriteProvider.
 * 新增lzo压缩.
 * 新增监控接口.
+
+## 对camus的定制
+
+#### mapreduce限速
+
+该功能可以防止kafka的负载过大. 通过 kafka.mapper.max.qps 进行配置, 单位是 kb/s. 
+
+在 com.linkedin.camus.etl.kafka.mapred.EtlRecordReader 中的 nextKeyValue 加入了该功能.
+
+#### lzo压缩
+
+现有的snappy压缩不满满足我们的需求, 因此加入了对lzo压缩的支持. 将 etl.output.codec 配置为 lzo 或 lzop 可使用该功能.
+
+在 com.linkedin.camus.etl.kafka.common.StringRecordWriterProvider 中的构造函数中加入了该功能.
+
+#### 监控接口
+
+当mapreduce运行失败, 运行成功, 或者因达到pullTime而终止时, 会调用 etl.camus.monitor.class 配置中的类的指定方法.
+
+etl.camus.monitor.class 配置中的类需要实现 com.linkedin.camus.monitor.CamusMonitor 接口. 目前提供的 com.linkedin.camus.etl.kafka.monitor.MoguCamusMonitor 类只是简单的打印下相关的信息.
 
 
 ## Config
@@ -24,7 +36,6 @@ In this file we maintain our own README for internal project usage
 
 | 配置key | 含义 | 是否新增 |
 | --- | --- | --- |
-| groupName | 用于给配置分组. 通过groupName获取配置, 同时也会用来生成 camus.job.name, kafka.client.name 这2个配置 | 是 |
 | kafka.mapper.max.qps | 每个mapper的最大qps, 单位为KB/s | 是 |
 | etl.camus.monitor.class | 用于监控的类名. 当任务失败时, 或者达到pullTime而终止时, 会调用该类中的方法 | 是 |
 | etl.partitioner.class | 用于分区的类名 |
@@ -40,9 +51,6 @@ In this file we maintain our own README for internal project usage
 | mapred.map.tasks | 最大的mapper数. 如果该值小于 topic-partition 数, 会多个分区共用一个mapper |
 | kafka.move.to.last.offset.list | 将指定的topic列表的offset移动到最新处, 为all时表示所有topic |
 
-
-#### etl.camus.monitor.class
-目前只有一个可选值, com.linkedin.camus.etl.kafka.monitor.MoguCamusMonitor. 当任务失败, 或者达到最大pullTime而终止时, 会发送报警短信.
 
 #### etl.partitioner.class
 
@@ -70,15 +78,6 @@ com.linkedin.camus.etl.kafka.coders.MoguCrondDecoder | 为mogujie crond日志专
 
 如果感觉现有的 etl.camus.monitor.class, etl.partitioner.class, camus.message.decoder.class, etl.record.writer.provider.class无法满足需求, 完全可以自己新增定制类. 只要实现相应的接口即可.
 
-#### 配置后台
-
-camus的配置后台地址为 http://data.mogujie.org/exch/camus/list.htm, 目前只有数据平台的几个铁蛋有权限进入!!!
-
-每次执行mapreduce之前, 会根据groupName取出该group对应的配置, 写入 /etc/camusconfig/ 目录. 如果侦测到配置有问题, 报警后继续使用之前的配置. 当前修改后的配置, 会在下次执行mapreduce时生效.
-
-获取group配置的api的url为 http://data.mogujie.org/exch/api/camusconfig/requestone.htm?groupName=, 例如 [datacenter](http://data.mogujie.org/exch/api/camusconfig/requestone.htm?groupName=datacenter).
-
-
 #### 其他要注意的点
 
 * 如果要同一时间启动多个group的camus job, 注意要给它们配置不同的 etl.execution.base.path, etl.execution.history.path. 以免混在一起.
@@ -87,7 +86,7 @@ camus的配置后台地址为 http://data.mogujie.org/exch/camus/list.htm, 目�
 
 ## Running Camus
 
-在工程下有 datacenter.sh 和 items_action.sh 这2个shell文件. qihe2191 上的crontab每隔10分钟调用执行一次这2个文件.
+在工程下有 run.sh, 执行该文件即可运行camus, 前提是配置好 camus.properties.
 
 ## TODO List
 

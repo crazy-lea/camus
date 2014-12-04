@@ -18,10 +18,10 @@ public class MoguCamusMonitor implements CamusMonitor {
     }
 
     public void jobFail(String jobName) {
-        SmsSender.send("job fail: " + jobName, phone);
+        log.info("job fail: " + jobName);
     }
 
     public void jobPullTimeReach(String jobName) {
-        SmsSender.send("job reach pull time: " + jobName, phone);
+        log.info("job reach pull time: " + jobName);
     }
 }

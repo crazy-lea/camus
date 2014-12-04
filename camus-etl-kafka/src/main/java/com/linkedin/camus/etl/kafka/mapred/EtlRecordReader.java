@@ -242,7 +242,7 @@ public class EtlRecordReader extends RecordReader<EtlKey, CamusWrapper> {
                     byte[] bytes = getBytes(msgValue);
                     byte[] keyBytes = getBytes(msgKey);
 
-                    // 限流
+                    // 限制mapreduce的流量
                     currentReadBytes += bytes.length;
                     if (mapperMaxQps > 0) {
                         double qps = ((currentReadBytes / 1024.0) * 1000) / (System.currentTimeMillis() - mapperStartTime); //kb/s
